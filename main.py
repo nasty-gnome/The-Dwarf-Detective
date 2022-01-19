@@ -19,6 +19,7 @@ running = True
 screen = pygame.display.set_mode((1280, 720))
 backgrounds = {
     'flat': load_image('flat.jpg'),
+    'menu': load_image('menu.png')
 }
 player_image = load_image('player.png')  # КАРТИНКА ГГ
 
@@ -31,6 +32,8 @@ inventory_group = pygame.sprite.Group()
 research_background_group = pygame.sprite.Group()
 pygame.mouse.set_visible(False)  # СКРЫВАЕМ СТАНДАРТНЫЙ КУРСОР
 pick_mark = None
+all_items = {}
+things = {}
 
 
 class PickMark(pygame.sprite.Sprite):
@@ -43,7 +46,7 @@ class PickMark(pygame.sprite.Sprite):
 
 class Inventory(pygame.sprite.Sprite):
     def __init__(self):
-        super().__init__(inventory_group, things_sprites)
+        super().__init__(inventory_group)
         self.image = load_image("inventory.png")
         self.rect = self.image.get_rect()
         self.rect.x, self.rect.y = 0, 0
@@ -134,7 +137,14 @@ class Thing(pygame.sprite.Sprite):
                 self.rect.collidepoint(pygame.mouse.get_pos()) and\
                 not cursor.pressed:
             cursor.pressed = True  # УСТАНАВЛИВАЕМ, ЧТО КУРСОР НАЖАТ
-            if level_name == "flat":  # ЭТО УСКОРИТ РАБОТУ
+            if level_name == "menu":  # ЭТО УСКОРИТ РАБОТУ
+                global menu_run
+                if self.name == "continue_button":
+                    level_name = "flat"
+                    menu_run = False
+                    load_level(level_name)
+            if level_name == "flat":
+                global all_items
                 if self.name == "picture" and "ключ" not in things and not research:
                     if cursor.in_hands == "hand":
                         global active_animations
@@ -146,7 +156,7 @@ class Thing(pygame.sprite.Sprite):
                     del_pick_mark()
                 if self.name == "key" and not research:
                     if cursor.in_hands == "hand":
-                        Item("key_item")
+                        all_items["key_item"] = Item("key_item")
                         things.pop("ключ")
                         self.kill()
                     else:
@@ -184,15 +194,19 @@ class Thing(pygame.sprite.Sprite):
                     del_pick_mark()
                 if self.name == "gun":
                     if cursor.in_hands == "hanger_item":
-                        Item("gun_item")
+                        inventory.spis.pop(inventory.spis.index("hanger_item"))
+                        all_items["hanger_item"].kill()
+                        del all_items["hanger_item"]
+                        all_items["gun_item"] = Item("gun_item")
                         research_things.pop("пистолет")
                         self.kill()
+                        arrenge_inventory()
                     else:
                         print("WRONG")
                     del_pick_mark()
                 if self.name == "hanger":
                     if cursor.in_hands == "hand":
-                        Item("hanger_item")
+                        all_items["hanger_item"] = Item("hanger_item")
                         research_things.pop("вешалка")
                         self.kill()
                     else:
@@ -224,6 +238,25 @@ def add_to_inventory(item, name):  # ИНВЕНТАРЬ УЖЕ ДОЛЖЕН БЫ
     inventory.spis.append(name)
 
 
+def arrenge_inventory():
+    place = 0
+    for elem in inventory.spis:
+        item = all_items[elem]
+        if place == 0:
+            item.rect.x = 20
+            item.rect.y = 200
+        elif place == 1:
+            item.rect.x = 20
+            item.rect.y = 320
+        elif place == 2:
+            item.rect.x = 20
+            item.rect.y = 450
+        elif place == 3:
+            item.rect.x = 20
+            item.rect.y = 570
+        place += 1
+
+
 def play_animation(elem):
     elem[0].image = load_image(f"{elem[0].name}{elem[1]}.png")
     elem[1] += 1
@@ -241,32 +274,32 @@ def load_level(level_name):
     global things
     global research
     research = False
-    if level_name == "flat":  # ОБЪЕКТЫ СОЗДАЮТСЯ ПОД УРОВНИ
-        things = {"картина": Thing(500, 50, "picture"),
-                  "шкаф": Thing(1000, 0, "closet RES")}
-    things_sprites.draw(screen)
-    inventory_group.draw(screen)
-    player_group.draw(screen)
+    if level_name == "menu":
+        things = {"продолжить": Thing(50, 10, "continue_button")}
+    else:
+        if level_name == "flat":  # ОБЪЕКТЫ СОЗДАЮТСЯ ПОД УРОВНИ
+            for elem in things.keys():
+                things[elem].kill()
+            things = {"картина": Thing(500, 50, "picture"),
+                      "шкаф": Thing(1000, 0, "closet RES")}
+        things_sprites.draw(screen)
+        inventory_group.draw(screen)
+        player_group.draw(screen)
 
 
-def update():
-    # В ЗАВИСИМОСТИ ОТ НАЗВАНИЯ УРОВНЯ МЫ ПРОВЕРЯЕМ, С КАКИМИ ОБЪЕКТАМИ ИГРОК
-    # ВЗАИМОДЕЙСТВУЕТ
-    if level_name == "flat":
-        pass
-
-
-level_name = "flat"  # ЗАДАЁМ ИМЯ УРОВНЯ
-load_level(level_name)  # ЗАГРУЖАЕМ ТЕКУЩИЙ УРОВЕНЬ
 cursor = Cursor()
 inventory = Inventory()
 research_things = {}
 active_animations = []  # ПРОИГРЫВАЮЩИЕСЯ АНИМАЦИИ (1 элемент - объект,
 # 2 - следующий кадр,3 - количество кадров)
+level_name = "menu"  # ЗАДАЁМ ИМЯ УРОВНЯ
+load_level(level_name)  # ЗАГРУЖАЕМ ТЕКУЩИЙ УРОВЕНЬ
 while running:
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             running = False
+            pygame.quit()
+            exit()
         if event.type == pygame.MOUSEBUTTONUP:
             cursor.pressed = False
     screen.fill((0, 0, 0))
@@ -280,11 +313,12 @@ while running:
         for elem in research_things.copy().keys():
             screen.blit(research_things[elem].image, research_things[elem].rect)
             research_things[elem].update(event)
-    inventory.update(event)
     for elem in active_animations:
         play_animation(elem)
-    inventory_group.draw(screen)
-    player_group.draw(screen)
+    if level_name != "menu":
+        inventory.update(event)
+        inventory_group.draw(screen)
+        player_group.draw(screen)
     cursor.update_pos()
     cursor.research_zone = False
     cursor_group.draw(screen)
