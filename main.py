@@ -139,6 +139,7 @@ class Thing(pygame.sprite.Sprite):
         global research
         global level_name
         global break_cicle
+        global score
         if "RES" in self.name and self.rect.collidepoint(pygame.mouse.get_pos()):
             cursor.research_zone = True
         if args and args[0].type == pygame.MOUSEBUTTONDOWN and \
@@ -147,6 +148,9 @@ class Thing(pygame.sprite.Sprite):
             cursor.pressed = True  # УСТАНАВЛИВАЕМ, ЧТО КУРСОР НАЖАТ
             if level_name == "menu":  # ЭТО УСКОРИТ РАБОТУ
                 if self.name == "new_game_button":
+                    global inventory
+                    inventory.spis = []
+                    score = cur.execute("SELECT score FROM saves").fetchone()[0]
                     cur.execute("UPDATE saves SET scene = 'comics'")
                     cur.execute("UPDATE saves SET score = 10")
                     data.commit()
@@ -166,7 +170,7 @@ class Thing(pygame.sprite.Sprite):
                     break_cicle = True
             if level_name == "flat":
                 global all_items
-                global score
+                print(score)
                 if self.name == "picture" and "ключ" not in things and not research:
                     if cursor.in_hands == "hand":
                         global active_animations
