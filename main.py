@@ -1,6 +1,7 @@
 import pygame
 import os
 import sys
+import sqlite3
 
 
 def load_image(name, colorkey=None):
@@ -13,13 +14,17 @@ def load_image(name, colorkey=None):
     return image
 
 
+data = sqlite3.connect("sprites/dwarf_database.db")
+cur = data.cursor()
 pygame.init()
 pygame.display.set_caption("Карлик-детектив")
 running = True
 screen = pygame.display.set_mode((1280, 720))
 backgrounds = {
     'flat': load_image('flat.jpg'),
-    'menu': load_image('menu.png')
+    'menu': load_image('menu.png'),
+    'comics': load_image('comics.jpg'),
+    'end': load_image('end.jpg')
 }
 player_image = load_image('player.png')  # КАРТИНКА ГГ
 
@@ -32,8 +37,10 @@ inventory_group = pygame.sprite.Group()
 research_background_group = pygame.sprite.Group()
 pygame.mouse.set_visible(False)  # СКРЫВАЕМ СТАНДАРТНЫЙ КУРСОР
 pick_mark = None
+break_cicle = False  # ЧТОБЫ ВЫЙТИ ИЗ ПРОВЕРКИ СОБЫТИЙ ЧЕРЕЗ ФУНКЦИЮ
 all_items = {}
 things = {}
+score = cur.execute("SELECT score FROM saves").fetchone()[0]
 
 
 class PickMark(pygame.sprite.Sprite):
@@ -79,7 +86,7 @@ class Inventory(pygame.sprite.Sprite):
 class Cursor(pygame.sprite.Sprite):
     def __init__(self):
         super().__init__(cursor_group, things_sprites)
-        self.standart_cursor = load_image("cursor.gif")
+        self.standart_cursor = load_image("cursor.png")
         self.loupe_cursor = load_image("cursor_loupe.png")
         self.back_cursor = load_image("cursor_back.png")
         self.image = self.standart_cursor
@@ -131,6 +138,7 @@ class Thing(pygame.sprite.Sprite):
     def update(self, *args):
         global research
         global level_name
+        global break_cicle
         if "RES" in self.name and self.rect.collidepoint(pygame.mouse.get_pos()):
             cursor.research_zone = True
         if args and args[0].type == pygame.MOUSEBUTTONDOWN and \
@@ -138,13 +146,27 @@ class Thing(pygame.sprite.Sprite):
                 not cursor.pressed:
             cursor.pressed = True  # УСТАНАВЛИВАЕМ, ЧТО КУРСОР НАЖАТ
             if level_name == "menu":  # ЭТО УСКОРИТ РАБОТУ
-                global menu_run
-                if self.name == "continue_button":
-                    level_name = "flat"
-                    menu_run = False
+                if self.name == "new_game_button":
+                    cur.execute("UPDATE saves SET scene = 'comics'")
+                    cur.execute("UPDATE saves SET score = 10")
+                    data.commit()
+                    level_name = "comics"
                     load_level(level_name)
+                    break_cicle = True
+                if self.name == "continue_button":
+                    level_name = cur.execute("SELECT scene FROM saves").fetchone()[0]
+                    load_level(level_name)
+                    break_cicle = True
+            if level_name == "comics":
+                if self.name == "next_button":
+                    cur.execute("UPDATE saves SET scene = 'flat'")
+                    data.commit()
+                    level_name = "flat"
+                    load_level(level_name)
+                    break_cicle = True
             if level_name == "flat":
                 global all_items
+                global score
                 if self.name == "picture" and "ключ" not in things and not research:
                     if cursor.in_hands == "hand":
                         global active_animations
@@ -152,7 +174,9 @@ class Thing(pygame.sprite.Sprite):
                         things["ключ"] = Thing(600, 85, "key")
                         things.pop("картина")
                     else:
-                        print("WRONG")
+                        pygame.mixer.music.load("sprites/wrong.wav")
+                        pygame.mixer.music.play()
+                        score -= 1
                     del_pick_mark()
                 if self.name == "key" and not research:
                     if cursor.in_hands == "hand":
@@ -160,7 +184,9 @@ class Thing(pygame.sprite.Sprite):
                         things.pop("ключ")
                         self.kill()
                     else:
-                        print("WRONG")
+                        pygame.mixer.music.load("sprites/wrong.wav")
+                        pygame.mixer.music.play()
+                        score -= 1
                     del_pick_mark()
                 if self.name == "closet RES":
                     if cursor.in_hands == "hand":
@@ -190,7 +216,9 @@ class Thing(pygame.sprite.Sprite):
                             research_things.clear()
                             things["шкаф"].rect.y = 0
                     else:
-                        print("WRONG")
+                        pygame.mixer.music.load("sprites/wrong.wav")
+                        pygame.mixer.music.play()
+                        score -= 1
                     del_pick_mark()
                 if self.name == "gun":
                     if cursor.in_hands == "hanger_item":
@@ -202,7 +230,9 @@ class Thing(pygame.sprite.Sprite):
                         self.kill()
                         arrenge_inventory()
                     else:
-                        print("WRONG")
+                        pygame.mixer.music.load("sprites/wrong.wav")
+                        pygame.mixer.music.play()
+                        score -= 1
                     del_pick_mark()
                 if self.name == "hanger":
                     if cursor.in_hands == "hand":
@@ -210,8 +240,23 @@ class Thing(pygame.sprite.Sprite):
                         research_things.pop("вешалка")
                         self.kill()
                     else:
-                        print("WRONG")
+                        pygame.mixer.music.load("sprites/wrong.wav")
+                        pygame.mixer.music.play()
+                        score -= 1
                     del_pick_mark()
+                if "gun_item" in inventory.spis and "key_item" in inventory.spis:
+                    break_cicle = True
+                    cur.execute("UPDATE saves SET score = ?", (str(score),))
+                    things_sprites.empty()
+                    cur.execute("UPDATE saves SET scene = 'comics'")
+                    data.commit()
+                    level_name = "end"
+                    load_level(level_name)
+            if level_name == "end":
+                if self.name == "menu_button":
+                    level_name = "menu"
+                    load_level(level_name)
+                    break_cicle = True
 
 
 def del_pick_mark():
@@ -274,14 +319,29 @@ def load_level(level_name):
     global things
     global research
     research = False
-    if level_name == "menu":
-        things = {"продолжить": Thing(50, 10, "continue_button")}
+    if level_name == "menu":  # ОБЪЕКТЫ СОЗДАЮТСЯ ПОД УРОВНИ
+        if things:
+            for elem in things.keys():
+                things[elem].kill()
+        things = {"новая игра": Thing(50, 10, "new_game_button"),
+                  "продолжить": Thing(50, 320, "continue_button")}
     else:
-        if level_name == "flat":  # ОБЪЕКТЫ СОЗДАЮТСЯ ПОД УРОВНИ
+        if level_name == "comics":
+            for elem in things.keys():
+                things[elem].kill()
+            things = {"далее": Thing(900, 600, "next_button")}
+        if level_name == "flat":
             for elem in things.keys():
                 things[elem].kill()
             things = {"картина": Thing(500, 50, "picture"),
                       "шкаф": Thing(1000, 0, "closet RES")}
+            pygame.mixer.music.load("sprites/flat_start.wav")
+            pygame.mixer.music.play()
+        if level_name == "end":
+            pygame.mixer.music.stop()
+            for elem in things.keys():
+                things[elem].kill()
+            things = {"в меню": Thing(0, 400, "menu_button")}
         things_sprites.draw(screen)
         inventory_group.draw(screen)
         player_group.draw(screen)
@@ -306,6 +366,9 @@ while running:
     if not research:
         for elem in things.copy().keys():
             things[elem].update(event)
+            if break_cicle:
+                break_cicle = False
+                break
         backgrounds_group.draw(screen)
         things_sprites.draw(screen)
     else:
@@ -315,10 +378,15 @@ while running:
             research_things[elem].update(event)
     for elem in active_animations:
         play_animation(elem)
-    if level_name != "menu":
+    if level_name not in ["menu", "comics", "end"]:
         inventory.update(event)
         inventory_group.draw(screen)
         player_group.draw(screen)
+    else:
+        if level_name == "end":
+            font = pygame.font.Font(None, 120)
+            text = font.render(f"Счёт: {score}", True, [255, 255, 255])
+            screen.blit(text, (600, 600))
     cursor.update_pos()
     cursor.research_zone = False
     cursor_group.draw(screen)
